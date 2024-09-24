@@ -5,30 +5,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-
-	"github.com/abakum/term"
 	// можно импортировать любые модули
 )
 
 var (
-	// можно объявлять любые переменные
-	ioe *term.IOE
+	rc io.ReadCloser
 )
-
-func start() {
-	// можно писать любой код
-	ioe = term.NewIOE()
-}
-
-func done() {
-	// можно писать любой код
-	ioe.Close()
-}
-
-func stdIn() io.ReadCloser {
-	// можно писать любой код
-	return ioe.ReadCloser()
-}
 
 // Какой ты хитренький \8^)
 // Может ты сможешь изменить строчку
@@ -40,13 +22,15 @@ func main() {
 
 	for i := 0; i < 2; i++ {
 		start()
-		cmd := exec.Command("cmd", "/c", "echo Press any key to continue . . .&&pause")
-		// cmd := exec.Command("cmd")
+		cmd := exec.Command(arg0, arg1, arg2) // Работает
+		// cmd := exec.Command("cmd") // Не работает
+		// cmd := exec.Command("powershell") // Работает
 
 		out, err := cmd.StdoutPipe()
 		if err != nil {
 			panic(err)
 		}
+
 		in, err := cmd.StdinPipe()
 		if err != nil {
 			panic(err)
@@ -68,7 +52,7 @@ func main() {
 			fmt.Println("Wait done")
 		}()
 
-		io.Copy(in, stdIn())
+		io.Copy(in, rc)
 		fmt.Println("Stdin done")
 	}
 }
