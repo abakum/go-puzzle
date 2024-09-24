@@ -11,7 +11,7 @@ import (
 const (
 	arg0 = "bash"
 	arg1 = "-c"
-	arg2 = `read -n1 -r -p "Press any key to continue..."`
+	arg2 = "echo Press any key to continue . . .; read -rn1"
 )
 
 func start() {
