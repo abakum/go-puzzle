@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -12,62 +13,71 @@ import (
 	"github.com/containerd/console"
 	"github.com/mattn/go-isatty"
 	"github.com/xlab/closer"
-	// можно импортировать любые модули
 )
 
 var (
-	rc   io.ReadCloser
+	raw  bool
 	once bool
 )
 
-// Какой ты хитренький \8^)
-// Может ты сможешь изменить строчку
-// `cmd := exec.Command("cmd", "/c", "echo Press any key to continue . . .&&pause")`
-// на
-// `cmd := exec.Command("cmd")`
-// и выйти из программы введя дважды команду `exit`?
+const delay = time.Millisecond * 77
+
+var reset = func(*bool) {}
+
 func main() {
-	defer closer.Close()
-	// setRaw(&once)
+	defer func() {
+		reset(&raw)
+		closer.Close()
+	}()
 	log.SetFlags(log.Lmicroseconds | log.Lshortfile)
-	for i := 0; i < 2; i++ {
+	log.SetPrefix("\r")
+	parent := context.Background()
+	var cmd *exec.Cmd
+	for i := 0; i < 8; i++ {
 		// start()
-		ctx, cancel := context.WithCancel(context.Background())
-		// cmd := exec.Command(arg0, arg1, arg2) // Работает
-		cmd := exec.Command(arg0) // Работает
+		ctx, cancel := context.WithCancel(parent)
+		if i%4 > 1 {
+			reset(&raw)
+			cmd = exec.Command(arg0)
+		} else {
+			reset = setRaw(&raw, reset)
+			cmd = exec.Command(arg0, arg1, arg2)
+		}
 		log.Println(cmd)
-		// cmd.Stdin = os.Stdin
-		// cmd.Stdout = os.Stdout
-		// cmd.Run()
-		// continue
-		// cmd := exec.Command("cmd") // Не работает
-		// cmd := exec.Command("powershell") // Работает
+		if i < 4 {
+			log.Println("without pipes")
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+		} else {
+			ConsoleCP(&once)
 
-		out, err := cmd.StdoutPipe()
-		if err != nil {
-			panic(err)
+			log.Println("with pipes")
+
+			out, err := cmd.StdoutPipe()
+			if err != nil {
+				panic(err)
+			}
+
+			in, err := cmd.StdinPipe()
+			if err != nil {
+				panic(err)
+			}
+
+			go func() {
+				io.Copy(os.Stdout, NewReader(ctx, out, 0))
+				cancel()
+				log.Println("Stdout done")
+			}()
+
+			go func() {
+				io.Copy(in, NewReader(ctx, os.Stdin, delay))
+				cancel()
+				log.Println("Stdin done")
+
+			}()
 		}
-
-		in, err := cmd.StdinPipe()
-		if err != nil {
-			panic(err)
-		}
-
-		err = cmd.Start()
-		if err != nil {
-			panic(err)
-		}
-
-		go func() {
-			io.Copy(os.Stdout, out)
-			cancel()
-			log.Println("Stdout done")
-		}()
-
-		io.Copy(in, NewReader(ctx, os.Stdin))
-		log.Println("Stdin done")
-		cmd.Wait()
-		log.Println("Wait done")
+		fmt.Print("\r")
+		cmd.Run()
 
 	}
 
@@ -76,30 +86,41 @@ func main() {
 type reader struct {
 	ctx context.Context
 	r   io.Reader
+	d   time.Duration
 }
 
-func NewReader(ctx context.Context, r io.Reader) io.Reader {
+func NewReader(ctx context.Context, r io.Reader, d time.Duration) io.Reader {
 	if r, ok := r.(*reader); ok && ctx == r.ctx {
 		return r
 	}
-	return &reader{ctx: ctx, r: r}
+	return &reader{ctx: ctx, r: r, d: d}
 }
 
 func (r *reader) Read(p []byte) (n int, err error) {
+	if r.d == 0 {
+		select {
+		case <-r.ctx.Done():
+			// log.Println("Cancel done")
+			return 0, r.ctx.Err()
+		default:
+			return r.r.Read(p)
+		}
+
+	}
 	select {
 	case <-r.ctx.Done():
+		// log.Println("Cancel done")
 		return 0, r.ctx.Err()
-	case <-time.After(time.Millisecond * 3):
+	case <-time.After(r.d):
 		return r.r.Read(p)
 	}
 }
 
-func setRaw(already *bool) {
-	if *already {
+func setRaw(raw *bool, old func(*bool)) (reset func(*bool)) {
+	reset = old
+	if *raw {
 		return
 	}
-	*already = true
-
 	var (
 		err      error
 		current  console.Console
@@ -110,8 +131,15 @@ func setRaw(already *bool) {
 	if err == nil {
 		err = current.SetRaw()
 		if err == nil {
-			closer.Bind(func() { current.Reset() })
-			log.Println("Set raw by go")
+			*raw = true
+			reset = func(raw *bool) {
+				if *raw {
+					err := current.Reset()
+					log.Println("Restores the console to its original state by go", err)
+				}
+				*raw = err != nil
+			}
+			log.Println("Sets the console in raw mode by go")
 			return
 		}
 	}
@@ -121,14 +149,21 @@ func setRaw(already *bool) {
 		if err == nil {
 			err = sttyMakeRaw()
 			if err == nil {
-				closer.Bind(func() { sttyReset(settings) })
-				log.Println("Set raw by stty")
+				*raw = true
+				reset = func(raw *bool) {
+					if *raw {
+						sttyReset(settings)
+						log.Println("Restores the console to its original state by stty")
+					}
+					*raw = false
+				}
+				log.Println("Sets the console in raw mode by stty")
 				return
 			}
 		}
 	}
 	log.Println(err)
-
+	return
 }
 
 func sttyMakeRaw() error {
