@@ -1,6 +1,6 @@
 module github.com/abakum/go-puzzle
 
-go 1.21.4
+go 1.21
 
 require github.com/abakum/term v0.0.0-20240212164236-135562d7e4cf
 

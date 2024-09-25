@@ -15,24 +15,27 @@ import (
 	"github.com/xlab/closer"
 )
 
-var (
-	raw  bool
-	once bool
-)
-
-const delay = time.Millisecond * 77
-
-var reset = func(*bool) {}
-
 func main() {
+	var (
+		raw    bool
+		once   bool
+		reset  = func(*bool) {}
+		cmd    *exec.Cmd
+		parent = context.Background()
+	)
+
+	const delay = time.Millisecond * 77
+
 	defer func() {
 		reset(&raw)
 		closer.Close()
 	}()
+	if isatty.IsCygwinTerminal(os.Stdin.Fd()) {
+		ConsoleCP(&once)
+	}
 	log.SetFlags(log.Lmicroseconds | log.Lshortfile)
 	log.SetPrefix("\r")
-	parent := context.Background()
-	var cmd *exec.Cmd
+
 	for i := 0; i < 8; i++ {
 		ctx, cancel := context.WithCancel(parent)
 		if i%4 > 1 {
@@ -48,9 +51,8 @@ func main() {
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 		} else {
-			ConsoleCP(&once)
-
 			log.Println("with pipes")
+			ConsoleCP(&once)
 
 			out, err := cmd.StdoutPipe()
 			if err != nil {
@@ -80,7 +82,6 @@ func main() {
 			fmt.Println("Type exit<Enter>\r")
 		}
 		cmd.Run()
-
 	}
 }
 
