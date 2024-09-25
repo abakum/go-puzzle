@@ -34,7 +34,6 @@ func main() {
 	parent := context.Background()
 	var cmd *exec.Cmd
 	for i := 0; i < 8; i++ {
-		// start()
 		ctx, cancel := context.WithCancel(parent)
 		if i%4 > 1 {
 			reset(&raw)
@@ -77,10 +76,12 @@ func main() {
 			}()
 		}
 		fmt.Print("\r")
+		if i%4 > 1 {
+			fmt.Println("Type exit<Enter>\r")
+		}
 		cmd.Run()
 
 	}
-
 }
 
 type reader struct {
@@ -97,21 +98,18 @@ func NewReader(ctx context.Context, r io.Reader, d time.Duration) io.Reader {
 }
 
 func (r *reader) Read(p []byte) (n int, err error) {
-	if r.d == 0 {
+	if r.d > 0 {
 		select {
 		case <-r.ctx.Done():
-			// log.Println("Cancel done")
 			return 0, r.ctx.Err()
-		default:
+		case <-time.After(r.d):
 			return r.r.Read(p)
 		}
-
 	}
 	select {
 	case <-r.ctx.Done():
-		// log.Println("Cancel done")
 		return 0, r.ctx.Err()
-	case <-time.After(r.d):
+	default:
 		return r.r.Read(p)
 	}
 }
